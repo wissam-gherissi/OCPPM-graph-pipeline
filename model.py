@@ -99,7 +99,7 @@ class CustomPipeline(torch.nn.Module):
     def predict(self, data):
         embeddings = self.compute_embeddings(data)
         nn_predictions = [mlp(embeddings) for mlp in self.nn_predictors]
-        ml_predictions = [torch.tensor(ml.predict(np.array(embeddings))).unsqueeze(-1) for ml in self.ml_predictors]
+        ml_predictions = [torch.tensor(ml.predict(np.array(embeddings.cpu()))).unsqueeze(-1) for ml in self.ml_predictors]
         return nn_predictions, ml_predictions
 
 
