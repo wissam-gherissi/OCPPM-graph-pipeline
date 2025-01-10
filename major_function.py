@@ -103,8 +103,8 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
         input_dataset = generate_matrix_dataset(subgraph_list)
         num_features = input_dataset[0].x.shape[1]
         # train val test split
-        temp_data, test_data = train_test_split(input_dataset, test_size=0.2)
-        train_data, val_data = train_test_split(temp_data, test_size=0.2)
+        temp_data, test_data = train_test_split(input_dataset, test_size=0.2, random_state=42)
+        train_data, val_data = train_test_split(temp_data, test_size=0.2, random_state=42)
         # data loaders
         train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
