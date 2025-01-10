@@ -13,7 +13,7 @@ from ocpa.algo.predictive_monitoring import factory as predictive_monitoring
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from torch import optim
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import MLP
@@ -25,7 +25,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedding_name, embedding_size,
-                  batch_size, mlp_hidden_dim, mlp_num_layers):
+                  batch_size, learning_rate, mlp_hidden_dim, mlp_num_layers):
     # OCEL file import
     print(f"Importing OCEL {filename}")
     file_path = os.path.join('.', 'ocel', 'csv', filename)
@@ -90,7 +90,7 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
         y = np.array([g[2:] for g in subgraph_list])
         for i, pred_type in enumerate(pred_types):
             if pred_type is None:
-                scaler = StandardScaler()
+                scaler = MinMaxScaler()
                 y[:, i] = scaler.fit_transform(y[:, i].reshape(-1, 1))[:, 0]
                 for idx, subgraph in enumerate(subgraph_list):
                     subgraph[2 + i] = float(y[idx, i])
@@ -100,16 +100,15 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
                 for idx, subgraph in enumerate(subgraph_list):
                     subgraph[2 + i] = int(y[idx, i])
 
-        lr_graph = 0.001
         input_dataset = generate_matrix_dataset(subgraph_list)
         num_features = input_dataset[0].x.shape[1]
         # train val test split
         temp_data, test_data = train_test_split(input_dataset, test_size=0.2)
         train_data, val_data = train_test_split(temp_data, test_size=0.2)
         # data loaders
-        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
-        val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, pin_memory=True)
+        test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, pin_memory=True)
+        val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False, pin_memory=True)
         # embedding, predictor setup
         print("Model Construction")
         # Init Embedding model
@@ -150,7 +149,8 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
         # Init pipeline
         model = CustomPipeline(embedding_layer, nn_preds, ml_preds)
         # Init optimizer
-        optimizer = optim.Adam(model.parameters(), lr_graph)
+        optimizer = optim.Adam(model.parameters(), learning_rate)
+        # Move model and data to device (cuda if exists)
         model = model.to(device)
         print("Training...")
         train_loop(model, optimizer, train_loader, val_loader, pred_types, num_epochs=10)
@@ -158,10 +158,18 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
         test_nn_scores, test_ml_scores = evaluate(model, test_loader, pred_types, train_loader)
         # Store test scores for nn and ml
         for i, result_df in enumerate(result_dfs):
-            res_row = [f"MLP_{mlp_hidden_dim}_{mlp_num_layers}", test_nn_scores[i]]
-            result_df.loc[len(result_df)] = res_row
-            res_row = ["Linear models", test_ml_scores[i]]
-            result_df.loc[len(result_df)] = res_row
+            if i == 0:
+                a = scaler.inverse_transform(np.array(test_nn_scores[i]).reshape(-1, 1))[0][0]
+                res_row = [f"MLP_{mlp_hidden_dim}_{mlp_num_layers}", a/86400]
+                result_df.loc[len(result_df)] = res_row
+                b = scaler.inverse_transform(test_ml_scores[i].reshape(-1, 1))[0][0]
+                res_row = ["Linear models", b/86400]
+                result_df.loc[len(result_df)] = res_row
+            else:
+                res_row = [f"MLP_{mlp_hidden_dim}_{mlp_num_layers}", test_nn_scores[i]]
+                result_df.loc[len(result_df)] = res_row
+                res_row = ["Linear models", test_ml_scores[i]]
+                result_df.loc[len(result_df)] = res_row
         # Tests on Random forest models
         new_ml_preds = []
         for pred_type in pred_types:
@@ -176,8 +184,13 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
         _, test_ml_scores_rf = evaluate(model, test_loader, pred_types, train_loader)
         # Store scores
         for i, result_df in enumerate(result_dfs):
-            res_row = ["Random forest models", test_ml_scores[i]]
-            result_df.loc[len(result_df)] = res_row
+            if i == 0:
+                a = scaler.inverse_transform(np.array(test_ml_scores[i]).reshape(-1, 1))[0][0]
+                res_row = ["Random forest models", a/86400]
+                result_df.loc[len(result_df)] = res_row
+            else:
+                res_row = ["Random forest models", test_ml_scores[i]]
+                result_df.loc[len(result_df)] = res_row
         # Tests on XGBoost models
         new_ml_preds = []
         for pred_type in pred_types:
@@ -192,8 +205,13 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
         _, test_ml_scores_rf = evaluate(model, test_loader, pred_types, train_loader)
         # Store scores
         for i, result_df in enumerate(result_dfs):
-            res_row = ["XGB models", test_ml_scores[i]]
-            result_df.loc[len(result_df)] = res_row
+            if i == 0:
+                a = scaler.inverse_transform(np.array(test_ml_scores[i]).reshape(-1, 1))[0][0]
+                res_row = ["XGB models", a/86400]
+                result_df.loc[len(result_df)] = res_row
+            else:
+                res_row = ["XGB models", test_ml_scores[i]]
+                result_df.loc[len(result_df)] = res_row
 
         for i, result_df in enumerate(result_dfs):
             result_file_path = os.path.join(result_dir_paths[i], f"{embedding_name}_{embedding_size}_{no_feat}.csv")

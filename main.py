@@ -35,6 +35,7 @@ if __name__ == '__main__':
     embedding_name_list = ["GAT", "GCN", "Graph2Vec", "FGSD"]
     embedding_size_list = [8, 16, 64]
     batch_size = 16
+    learning_rate = 0.001
     mlp_hidden_dim_list = [8, 32]
     mlp_num_layers_list = [1, 4]
     filename = "recruiting-ocel1"
@@ -50,6 +51,6 @@ if __name__ == '__main__':
                 for mlp_num_layers in mlp_num_layers_list:
                     for no_feat in no_feats:
                         main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedding_name,
-                                      embedding_size, batch_size, mlp_hidden_dim, mlp_num_layers)
+                                      embedding_size, batch_size, learning_rate, mlp_hidden_dim, mlp_num_layers)
     a = 0
 
