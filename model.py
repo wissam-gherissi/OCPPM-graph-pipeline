@@ -136,7 +136,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
             score_functions.append(nn.L1Loss())
         else:
             loss_functions.append(lambda x,y: nn.CrossEntropyLoss()(x, y.to(torch.long)))
-            score_functions.append(lambda x, y: accuracy_score(np.argmax(nn.functional.sigmoid(x).cpu(), axis=1), y))
+            score_functions.append(lambda x, y: accuracy_score(np.argmax(nn.functional.sigmoid(x).cpu(), axis=1), y.cpu()))
     if new_ml_predictors is None:
         model.fit_ml_predictors(training_data)
     else:
