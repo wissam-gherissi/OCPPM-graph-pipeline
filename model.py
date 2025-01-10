@@ -155,7 +155,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
         for i, (score_fn, loss_fn) in enumerate(zip(score_functions, loss_functions)):
             nn_score = score_fn(nn_predictions[i], ground_truth[:, i].unsqueeze(-1))
             nn_scores.append(float(nn_score))
-            ml_score = score_fn(ml_predictions[i], ground_truth[:, i].unsqueeze(-1))
+            ml_score = score_fn(ml_predictions[i], ground_truth[:, i].cpu().unsqueeze(-1))
             ml_scores.append(ml_score)
             loss = loss_fn(nn_predictions[i], ground_truth[:, i])
             losses.append(loss)
