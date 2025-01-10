@@ -90,7 +90,7 @@ class CustomPipeline(torch.nn.Module):
             batch = batch.to(device)
             embeddings = self.compute_embeddings(batch)
         for idx, ml_predictor in enumerate(self.ml_predictors):
-            ml_predictor.fit(embeddings.detach().numpy(), np.array(y[:, idx]))
+            ml_predictor.fit(embeddings.cpu().detach().numpy(), np.array(y[:, idx]))
 
     def fit_new_ml_predictors(self, data, new_ml_predictors):
         self.ml_predictors = new_ml_predictors
