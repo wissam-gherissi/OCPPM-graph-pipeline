@@ -115,7 +115,7 @@ def train_loop(model, optimizer, train_loader, val_loader, pred_types, num_epoch
             batch = batch.to(device)
             optimizer.zero_grad()
             predictions = model(batch)
-            ground_truth = torch.tensor(batch.y)
+            ground_truth = torch.tensor(batch.y, device=device)
             losses = 0.0
             for i, (loss_fn, preds) in enumerate(zip(loss_functions, predictions)):
                 losses += loss_fn(preds, ground_truth[:, i])
@@ -128,7 +128,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
     model.eval()
     loss_functions = []
     score_functions = []
-    ground_truth = torch.tensor([d.y for d in data.dataset])
+    ground_truth = torch.tensor([d.y for d in data.dataset], device=device)
     for pred_type in pred_types:
         if pred_type is None:
             loss_functions.append(lambda x,y: nn.HuberLoss()(x, y.unsqueeze(-1)))
