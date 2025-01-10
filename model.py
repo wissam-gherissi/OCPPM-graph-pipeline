@@ -129,7 +129,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
     model.eval()
     loss_functions = []
     score_functions = []
-    ground_truth = torch.tensor([d.y for d in data.dataset], device=device)
+    ground_truth = torch.tensor([d.y for d in data.dataset])
     for pred_type in pred_types:
         if pred_type is None:
             loss_functions.append(lambda x,y: nn.HuberLoss()(x, y.unsqueeze(-1)))
