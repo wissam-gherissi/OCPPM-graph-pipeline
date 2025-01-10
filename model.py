@@ -136,7 +136,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
             score_functions.append(nn.L1Loss())
         else:
             loss_functions.append(lambda x,y: nn.CrossEntropyLoss()(x, y.to(torch.long)))
-            score_functions.append(lambda x, y: accuracy_score(np.argmax(nn.functional.sigmoid(x).cpu(), axis=1), y.cpu()))
+            score_functions.append(lambda x, y: accuracy_score(np.argmax(nn.functional.sigmoid(x), axis=1), y))
     if new_ml_predictors is None:
         model.fit_ml_predictors(training_data)
     else:
@@ -145,7 +145,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
         nn_predictions_list, ml_predictions_list = [[] for pred_type in pred_types], [[] for pred_type in pred_types]
         for batch in data:
             batch = batch.to(device)
-            nn_predictions, ml_predictions = model.predict(batch)
+            nn_predictions, ml_predictions = model.predict(batch).cpu()
             for i, pred_type in enumerate(pred_types):
                 nn_predictions_list[i].append(nn_predictions[i])
                 ml_predictions_list[i].append(ml_predictions[i])
@@ -155,7 +155,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
         for i, (score_fn, loss_fn) in enumerate(zip(score_functions, loss_functions)):
             nn_score = score_fn(nn_predictions[i], ground_truth[:, i].unsqueeze(-1))
             nn_scores.append(float(nn_score))
-            ml_score = score_fn(ml_predictions[i], ground_truth[:, i].cpu().unsqueeze(-1))
+            ml_score = score_fn(ml_predictions[i], ground_truth[:, i].unsqueeze(-1))
             ml_scores.append(ml_score)
             loss = loss_fn(nn_predictions[i], ground_truth[:, i])
             losses.append(loss)
