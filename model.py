@@ -6,7 +6,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.nn import GATConv, global_mean_pool, GCNConv
 import torch.nn.functional as F
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class GAT(torch.nn.Module):
     def __init__(self, num_layers, num_features, hidden_dim, target_size, heads=4):
@@ -87,10 +87,10 @@ class CustomPipeline(torch.nn.Module):
         y = torch.tensor([d.y for d in data.dataset])
         d = DataLoader(data.dataset, batch_size=len(data.dataset), pin_memory=True)
         for batch in d:
-            batch = batch.to(device)
+            #batch = batch.to(device)
             embeddings = self.compute_embeddings(batch)
         for idx, ml_predictor in enumerate(self.ml_predictors):
-            ml_predictor.fit(embeddings.cpu().detach().numpy(), np.array(y[:, idx]))
+            ml_predictor.fit(embeddings.detach().numpy(), np.array(y[:, idx]))
 
     def fit_new_ml_predictors(self, data, new_ml_predictors):
         self.ml_predictors = new_ml_predictors
@@ -98,8 +98,8 @@ class CustomPipeline(torch.nn.Module):
 
     def predict(self, data):
         embeddings = self.compute_embeddings(data)
-        nn_predictions = [mlp(embeddings).cpu() for mlp in self.nn_predictors]
-        ml_predictions = [torch.tensor(ml.predict(np.array(embeddings.cpu()))).unsqueeze(-1) for ml in self.ml_predictors]
+        nn_predictions = [mlp(embeddings) for mlp in self.nn_predictors]
+        ml_predictions = [torch.tensor(ml.predict(np.array(embeddings))).unsqueeze(-1) for ml in self.ml_predictors]
         return nn_predictions, ml_predictions
 
 
@@ -113,10 +113,10 @@ def train_loop(model, optimizer, train_loader, val_loader, pred_types, num_epoch
             loss_functions.append(lambda x,y: nn.CrossEntropyLoss()(x, y.to(torch.long)))
     for epoch in range(num_epochs):
         for batch in train_loader:
-            batch = batch.to(device)
+            #batch = batch.to(device)
             optimizer.zero_grad()
             predictions = model(batch)
-            ground_truth = torch.tensor(batch.y, device=device)
+            ground_truth = torch.tensor(batch.y)
             losses = 0.0
             for i, (loss_fn, preds) in enumerate(zip(loss_functions, predictions)):
                 losses += loss_fn(preds, ground_truth[:, i])
@@ -144,7 +144,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
     with torch.no_grad():
         nn_predictions_list, ml_predictions_list = [[] for pred_type in pred_types], [[] for pred_type in pred_types]
         for batch in data:
-            batch = batch.to(device)
+            #batch = batch.to(device)
             nn_predictions, ml_predictions = model.predict(batch)
             for i, pred_type in enumerate(pred_types):
                 nn_predictions_list[i].append(nn_predictions[i])
