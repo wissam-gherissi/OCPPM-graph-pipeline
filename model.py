@@ -85,7 +85,7 @@ class CustomPipeline(torch.nn.Module):
 
     def fit_ml_predictors(self, data):
         y = torch.tensor([d.y for d in data.dataset])
-        d = DataLoader(data.dataset, batch_size=len(data.dataset))
+        d = DataLoader(data.dataset, batch_size=len(data.dataset), pin_memory=True)
         for batch in d:
             batch = batch.to(device)
             embeddings = self.compute_embeddings(batch)
