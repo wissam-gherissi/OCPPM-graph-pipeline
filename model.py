@@ -146,8 +146,6 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
         for batch in data:
             batch = batch.to(device)
             nn_predictions, ml_predictions = model.predict(batch)
-            nn_predictions = nn_predictions.cpu()
-            ml_predictions = ml_predictions.cpu()
             for i, pred_type in enumerate(pred_types):
                 nn_predictions_list[i].append(nn_predictions[i])
                 ml_predictions_list[i].append(ml_predictions[i])
