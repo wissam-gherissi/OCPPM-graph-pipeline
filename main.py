@@ -3,11 +3,11 @@ import logging
 import torch
 
 from preprocessing import num_objects, num_events, num_unique_acts, remaining_time, ocel_to_csv
-from main_function import main_function
+from major_function import main_function
 logger = logging.getLogger()
 logger.setLevel(logging.CRITICAL)
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 if __name__ == '__main__':
