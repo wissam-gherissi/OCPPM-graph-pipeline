@@ -87,6 +87,7 @@ class CustomPipeline(torch.nn.Module):
         y = torch.tensor([d.y for d in data.dataset])
         d = DataLoader(data.dataset, batch_size=len(data.dataset))
         for batch in d:
+            batch = batch.to(device)
             embeddings = self.compute_embeddings(batch)
         for idx, ml_predictor in enumerate(self.ml_predictors):
             ml_predictor.fit(embeddings.detach().numpy(), np.array(y[:, idx]))
