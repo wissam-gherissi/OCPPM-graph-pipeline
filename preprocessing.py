@@ -3,6 +3,7 @@ import pm4py
 import torch
 from networkx import relabel_nodes
 from ocpa.algo.predictive_monitoring import factory as predictive_monitoring
+from sklearn.preprocessing import MinMaxScaler
 from torch_geometric.data import Data
 
 def ocel_to_csv(file_path, new_file_path, file_type):
@@ -101,7 +102,7 @@ def get_edge_index(graph):
     return edge_index
 
 
-def generate_matrix_dataset(labeled_subgraphs):
+def generate_matrix_dataset(labeled_subgraphs, idx_feat_to_scale, k, no_feat):
     data_list = []
     for el in labeled_subgraphs:
         gid = el[0]
@@ -112,4 +113,11 @@ def generate_matrix_dataset(labeled_subgraphs):
             edge_index = get_edge_index(subgraph)
             d = Data(id=gid, graph=subgraph, x=x, edge_index=edge_index, y=y)
             data_list.append(d)
+    if not no_feat:
+        for idx in idx_feat_to_scale:
+            scaler = MinMaxScaler()
+            X = torch.cat([d.x for d in data_list])
+            X = scaler.fit_transform(X[:, idx].reshape(-1, 1)).reshape(-1, k)
+            for d, dx in zip(data_list, X):
+                d.x[:, idx] = torch.tensor(dx)
     return data_list

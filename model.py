@@ -3,10 +3,11 @@ import torch
 from sklearn.metrics import accuracy_score
 from torch import nn
 from torch_geometric.loader import DataLoader
-from torch_geometric.nn import GATConv, global_mean_pool, GCNConv
+from torch_geometric.nn import GATConv, global_mean_pool, GCNConv, TransformerConv
 import torch.nn.functional as F
 
-#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class GAT(torch.nn.Module):
     def __init__(self, num_layers, num_features, hidden_dim, target_size, heads=4):
@@ -57,6 +58,34 @@ class GCN(torch.nn.Module):
         return x
 
 
+class GraphTransformer(torch.nn.Module):
+    def __init__(self, num_layers, num_features, hidden_dim, target_size, heads=4):
+        super(GraphTransformer, self).__init__()
+        self.hidden_size = hidden_dim
+        self.num_features = num_features
+        self.target_size = target_size
+        self.num_layers = num_layers
+        self.num_heads = heads
+        self.dropout = 0.5
+        self.convs = torch.nn.ModuleList([TransformerConv(self.num_features, self.hidden_size, heads=self.num_heads)] +
+                                         [TransformerConv(self.hidden_size * self.num_heads,
+                                                          self.hidden_size * self.num_heads,
+                                                          heads=self.num_heads)
+                                          for _ in range(self.num_layers - 2)] +
+                                         [TransformerConv(self.hidden_size * self.num_heads, self.target_size,
+                                                          heads=self.num_heads, concat=False)])
+
+    def forward(self, x, edge_index, batch):
+        # Apply multiple GATConv layers
+        for conv in self.convs:
+            x = F.gelu(conv(x, edge_index))
+            x = F.dropout(x, p=self.dropout, training=self.training)
+
+        x = global_mean_pool(x, batch=batch)
+
+        return x
+
+
 class CustomPipeline(torch.nn.Module):
     def __init__(self, embedding_model, mlp_preds, ml_preds):
         super(CustomPipeline, self).__init__()
@@ -74,7 +103,8 @@ class CustomPipeline(torch.nn.Module):
         x, edge_index, graph, batch = data.x, data.edge_index, data.graph, data.batch
         if self.uses_gnn:
             embeddings = self.Embedding(x, edge_index, batch)
-            return embeddings.clone().detach().requires_grad_(True)
+            return embeddings
+            # return torch.tensor(embeddings, dtype=torch.float)
         else:
             if not isinstance(graph, list):
                 graph = [graph]
@@ -82,15 +112,14 @@ class CustomPipeline(torch.nn.Module):
             embeddings = self.Embedding.get_embedding()
             return torch.tensor(embeddings, dtype=torch.float)
 
-
     def fit_ml_predictors(self, data):
         y = torch.tensor([d.y for d in data.dataset])
-        d = DataLoader(data.dataset, batch_size=len(data.dataset), pin_memory=True)
+        d = DataLoader(data.dataset, batch_size=len(data.dataset))
         for batch in d:
-            #batch = batch.to(device)
+            # batch = batch.to(device)
             embeddings = self.compute_embeddings(batch)
         for idx, ml_predictor in enumerate(self.ml_predictors):
-            ml_predictor.fit(embeddings.detach().numpy(), np.array(y[:, idx]))
+            self.ml_predictors[idx].fit(embeddings.detach().numpy(), np.array(y[:, idx]))
 
     def fit_new_ml_predictors(self, data, new_ml_predictors):
         self.ml_predictors = new_ml_predictors
@@ -104,16 +133,17 @@ class CustomPipeline(torch.nn.Module):
 
 
 def train_loop(model, optimizer, train_loader, val_loader, pred_types, num_epochs=1):
-    model.train()
     loss_functions = []
     for pred_type in pred_types:
         if pred_type is None:
-            loss_functions.append(lambda x,y: nn.HuberLoss()(x, y.unsqueeze(-1)))
+            loss_functions.append(lambda x, y: nn.HuberLoss()(x, y.unsqueeze(-1)))
         else:
-            loss_functions.append(lambda x,y: nn.CrossEntropyLoss()(x, y.to(torch.long)))
+            loss_functions.append(lambda x, y: nn.CrossEntropyLoss()(x, y.to(torch.long)))
     for epoch in range(num_epochs):
+        model.train()
         for batch in train_loader:
-            #batch = batch.to(device)
+            if len(batch) == 1:
+                continue
             optimizer.zero_grad()
             predictions = model(batch)
             ground_truth = torch.tensor(batch.y)
@@ -132,10 +162,10 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
     ground_truth = torch.tensor([d.y for d in data.dataset])
     for pred_type in pred_types:
         if pred_type is None:
-            loss_functions.append(lambda x,y: nn.HuberLoss()(x, y.unsqueeze(-1)))
+            loss_functions.append(lambda x, y: nn.HuberLoss()(x, y.unsqueeze(-1)))
             score_functions.append(nn.L1Loss())
         else:
-            loss_functions.append(lambda x,y: nn.CrossEntropyLoss()(x, y.to(torch.long)))
+            loss_functions.append(lambda x, y: nn.CrossEntropyLoss()(x, y.to(torch.long)))
             score_functions.append(lambda x, y: accuracy_score(np.argmax(nn.functional.sigmoid(x), axis=1), y))
     if new_ml_predictors is None:
         model.fit_ml_predictors(training_data)
@@ -144,7 +174,7 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
     with torch.no_grad():
         nn_predictions_list, ml_predictions_list = [[] for pred_type in pred_types], [[] for pred_type in pred_types]
         for batch in data:
-            #batch = batch.to(device)
+            # batch = batch.to(device)
             nn_predictions, ml_predictions = model.predict(batch)
             for i, pred_type in enumerate(pred_types):
                 nn_predictions_list[i].append(nn_predictions[i])
@@ -159,5 +189,5 @@ def evaluate(model, data, pred_types, training_data, new_ml_predictors=None):
             ml_scores.append(ml_score)
             loss = loss_fn(nn_predictions[i], ground_truth[:, i])
             losses.append(loss)
-            # print(f"Task {i}:\tLoss: {loss}\tScore (MLP predictor): {nn_score}\tScore (ML predictor): {ml_score}")
+            print(f"Task {i}:\tLoss: {loss}\tScore (MLP predictor): {nn_score}\tScore (ML predictor): {ml_score}")
         return nn_scores, ml_scores

@@ -13,15 +13,17 @@ from ocpa.algo.predictive_monitoring import factory as predictive_monitoring
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+from sklearn.neural_network import MLPRegressor, MLPClassifier
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, OrdinalEncoder
 from torch import optim
 from torch_geometric.loader import DataLoader
 from torch_geometric.nn import MLP
 
-from model import GAT, CustomPipeline, train_loop, evaluate, GCN
+from model import GAT, CustomPipeline, train_loop, evaluate, GCN, GraphTransformer
 from preprocessing import get_process_executions_nx, generate_matrix_dataset, get_subgraphs_labeled
 
-#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedding_name, embedding_size,
@@ -59,7 +61,7 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
 
     for k in ks:
         # Create result dataframe
-        task_names = [subg_funcs[0].__name__] + [f.__name__ for f in g_funcs]
+        task_names = [f.__name__ for f in subg_funcs] + [f.__name__ for f in g_funcs]
 
         print(f"Using subgraphs of length {k}")
         subgraph_list = get_subgraphs_labeled(PE_nx, k=k, subg_funcs=subg_funcs,
@@ -77,7 +79,7 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
                 task_names.pop(len(subg_funcs) + i)
             if num_classes[0] > 1:
                 pred_types += num_classes
-
+        # pred_types = [None for i in pred_types]
         result_dfs = []
         result_dir_paths = []
         for task_name in task_names:
@@ -95,12 +97,16 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
                 for idx, subgraph in enumerate(subgraph_list):
                     subgraph[2 + i] = float(y[idx, i])
             else:
-                encoder = LabelEncoder()
-                y[:, i] = encoder.fit_transform(y[:, i])
+                if pred_type > 6:
+                    y[:, i] = (y[:, i] < 25).astype(int)
+                else:
+                    encoder = OrdinalEncoder()
+                    y[:, i] = encoder.fit_transform(y[:, i].reshape(-1, 1))[:, 0]
                 for idx, subgraph in enumerate(subgraph_list):
                     subgraph[2 + i] = int(y[idx, i])
 
-        input_dataset = generate_matrix_dataset(subgraph_list)
+        idx_feats_to_scale = [0]
+        input_dataset = generate_matrix_dataset(subgraph_list, idx_feats_to_scale, k, no_feat)
         num_features = input_dataset[0].x.shape[1]
         # train val test split
         temp_data, test_data = train_test_split(input_dataset, test_size=0.2, random_state=42)
@@ -115,6 +121,10 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
         if embedding_name == 'GAT':
             embedding_layer = GAT(num_layers=2, num_features=num_features, hidden_dim=16, target_size=embedding_size,
                                   heads=4)
+        elif embedding_name == 'GraphTransformer':
+            embedding_layer = GraphTransformer(num_layers=2, num_features=num_features, hidden_dim=16,
+                                               target_size=embedding_size,
+                                               heads=4)
         elif embedding_name == 'GCN':
             embedding_layer = GCN(num_layers=2, num_features=num_features, hidden_dim=16, target_size=embedding_size)
         elif embedding_name == 'Graph2Vec':
@@ -132,7 +142,10 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
                 mlp = MLP(in_channels=embedding_size, hidden_channels=mlp_hidden_dim, out_channels=target_dim,
                           num_layers=mlp_num_layers)
             else:
-                target_dim = pred_type
+                if pred_type > 6:
+                    target_dim = 2
+                else:
+                    target_dim = pred_type
                 mlp = MLP(in_channels=embedding_size, hidden_channels=mlp_hidden_dim, out_channels=target_dim,
                           num_layers=mlp_num_layers)
             nn_preds.append(mlp)
@@ -144,7 +157,7 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
                 ml = LinearRegression()
             else:
                 target_dim = pred_type
-                ml = LogisticRegression(max_iter=1000)
+                ml = LogisticRegression(max_iter=1000, solver='sag')
             ml_preds.append(ml)
         # Init pipeline
         model = CustomPipeline(embedding_layer, nn_preds, ml_preds)
@@ -153,17 +166,17 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
         # Move model and data to device (cuda if exists)
         # model = model.to(device)
         print("Training...")
-        train_loop(model, optimizer, train_loader, val_loader, pred_types, num_epochs=10)
+        train_loop(model, optimizer, train_loader, val_loader, pred_types, num_epochs=20)
         # Tests on linear ml models
         test_nn_scores, test_ml_scores = evaluate(model, test_loader, pred_types, train_loader)
         # Store test scores for nn and ml
         for i, result_df in enumerate(result_dfs):
-            if i == 0:
+            if pred_types[i] is None:
                 a = scaler.inverse_transform(np.array(test_nn_scores[i]).reshape(-1, 1))[0][0]
-                res_row = [f"MLP_{mlp_hidden_dim}_{mlp_num_layers}", a/86400]
+                res_row = [f"MLP_{mlp_hidden_dim}_{mlp_num_layers}", a / 86400]
                 result_df.loc[len(result_df)] = res_row
                 b = scaler.inverse_transform(test_ml_scores[i].reshape(-1, 1))[0][0]
-                res_row = ["Linear models", b/86400]
+                res_row = ["Linear models", b / 86400]
                 result_df.loc[len(result_df)] = res_row
             else:
                 res_row = [f"MLP_{mlp_hidden_dim}_{mlp_num_layers}", test_nn_scores[i]]
@@ -180,13 +193,12 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
                 target_dim = pred_type
                 new_ml = RandomForestClassifier()
             new_ml_preds.append(new_ml)
-        model.fit_new_ml_predictors(train_loader, new_ml_preds)
-        _, test_ml_scores_rf = evaluate(model, test_loader, pred_types, train_loader)
+        _, test_ml_scores_rf = evaluate(model, test_loader, pred_types, train_loader, new_ml_predictors=new_ml_preds)
         # Store scores
         for i, result_df in enumerate(result_dfs):
-            if i == 0:
+            if pred_types[i] is None:
                 a = scaler.inverse_transform(np.array(test_ml_scores[i]).reshape(-1, 1))[0][0]
-                res_row = ["Random forest models", a/86400]
+                res_row = ["Random forest models", a / 86400]
                 result_df.loc[len(result_df)] = res_row
             else:
                 res_row = ["Random forest models", test_ml_scores[i]]
@@ -201,16 +213,36 @@ def main_function(filename, parameters, subg_funcs, g_funcs, no_feat, ks, embedd
                 target_dim = pred_type
                 new_ml = xgb.XGBClassifier()
             new_ml_preds.append(new_ml)
-        model.fit_new_ml_predictors(train_loader, new_ml_preds)
-        _, test_ml_scores_rf = evaluate(model, test_loader, pred_types, train_loader)
+        _, test_ml_scores_rf = evaluate(model, test_loader, pred_types, train_loader, new_ml_predictors=new_ml_preds)
         # Store scores
         for i, result_df in enumerate(result_dfs):
-            if i == 0:
+            if pred_types[i] is None:
                 a = scaler.inverse_transform(np.array(test_ml_scores[i]).reshape(-1, 1))[0][0]
-                res_row = ["XGB models", a/86400]
+                res_row = ["XGB models", test_ml_scores[i]]#a / 86400]
                 result_df.loc[len(result_df)] = res_row
             else:
                 res_row = ["XGB models", test_ml_scores[i]]
+                result_df.loc[len(result_df)] = res_row
+
+        # Tests on MLP models
+        new_ml_preds = []
+        for pred_type in pred_types:
+            if pred_type is None:
+                target_dim = 1
+                new_ml = MLPRegressor(hidden_layer_sizes=(32,32,32,32))
+            else:
+                target_dim = pred_type
+                new_ml = MLPClassifier(hidden_layer_sizes=(8,), solver='adam', max_iter=2000000)
+            new_ml_preds.append(new_ml)
+        _, test_ml_scores_rf = evaluate(model, test_loader, pred_types, train_loader, new_ml_predictors=new_ml_preds)
+        # Store scores
+        for i, result_df in enumerate(result_dfs):
+            if pred_types[i] is None:
+                a = scaler.inverse_transform(np.array(test_ml_scores[i]).reshape(-1, 1))[0][0]
+                res_row = ["SK MLP models", test_ml_scores[i]]#a / 86400]
+                result_df.loc[len(result_df)] = res_row
+            else:
+                res_row = ["SK MLP models", test_ml_scores[i]]
                 result_df.loc[len(result_df)] = res_row
 
         for i, result_df in enumerate(result_dfs):
